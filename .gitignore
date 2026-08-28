@@ -1,0 +1,29 @@
+# Secrets — never commit
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+
+# Node / UI
+node_modules/
+ui/dist/
+ui/.vite/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Local dev binaries (mcp-grafana server)
+.tools/
+
+# TypeScript incremental build cache
+ui/tsconfig.tsbuildinfo

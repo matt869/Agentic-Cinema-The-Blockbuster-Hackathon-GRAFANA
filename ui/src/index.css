@@ -1,0 +1,32 @@
+@import "tailwindcss";
+
+/* Projector defaults: near-black ground, high contrast, large base type so the
+   whole screen stays legible in a 1080p video at small playback size. */
+:root {
+  color-scheme: dark;
+  font-size: 17px;
+}
+
+body {
+  margin: 0;
+  background: #07090d;
+  color: #e8edf5;
+  font-family: ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.mono {
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+}
+
+@keyframes pulse-ring {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+.live-dot { animation: pulse-ring 1.6s ease-in-out infinite; }
+
+@keyframes slide-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.slide-in { animation: slide-in 0.28s ease-out; }

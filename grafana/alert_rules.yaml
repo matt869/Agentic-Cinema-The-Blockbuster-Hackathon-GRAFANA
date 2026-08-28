@@ -1,0 +1,165 @@
+# Grafana unified-alerting provisioning for the volume stage.
+#
+# Import with:
+#   Alerting -> Alert rules -> Import, or
+#   grafanactl / the provisioning API against this file.
+#
+# Each rule's contact point should post to POST /webhook/alert on the app.
+# The payload Grafana sends carries `alerts[].labels.alertname`, the
+# `annotations.summary`, and `startsAt` -- all three are read by
+# api/routes_webhook.py, and `startsAt` is what the scorer measures the
+# affected window against.
+#
+# NOTE: there is deliberately NO rule for gpu temperature. thermal_throttle is
+# silent quality decay -- no errors, no failures, no alert. It is found by the
+# agent generalising, not by a threshold someone wrote in advance.
+
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: volume-stage
+    folder: Volume Ops
+    interval: 30s
+    rules:
+      # --------------------------------------------------------------- RED
+      - uid: volume-sync-drift
+        title: LED wall sync drift
+        condition: THRESHOLD
+        for: 1m
+        labels:
+          severity: critical
+          surface: led_wall
+        annotations:
+          summary: >-
+            A render node has lost genlock and its wall segment is tearing on
+            camera.
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: grafanacloud-prom
+            model:
+              refId: A
+              instant: true
+              expr: max(stage_led_wall_sync_drift_ms)
+          - refId: THRESHOLD
+            datasourceUid: __expr__
+            model:
+              refId: THRESHOLD
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [2] }
+
+      - uid: volume-tracking-latency
+        title: Camera tracking latency high
+        condition: THRESHOLD
+        for: 1m
+        labels:
+          severity: critical
+          surface: tracking
+        annotations:
+          summary: >-
+            Camera tracking has drifted. Background parallax no longer matches
+            the camera move, so affected shots need VFX cleanup.
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: grafanacloud-prom
+            model:
+              refId: A
+              instant: true
+              expr: max(stage_camera_tracking_latency_ms)
+          - refId: THRESHOLD
+            datasourceUid: __expr__
+            model:
+              refId: THRESHOLD
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [12] }
+
+      - uid: volume-vram-exhaustion
+        title: Render node VRAM exhaustion
+        condition: THRESHOLD
+        for: 2m
+        labels:
+          severity: critical
+          surface: render_pool
+        annotations:
+          summary: >-
+            Render nodes are running out of video memory. Wall segments will go
+            black mid-take once they fill.
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: grafanacloud-prom
+            model:
+              refId: A
+              instant: true
+              expr: max(stage_gpu_vram_used_bytes / stage_gpu_vram_total_bytes)
+          - refId: THRESHOLD
+            datasourceUid: __expr__
+            model:
+              refId: THRESHOLD
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0.9] }
+
+      # ------------------------------------------------------------- AMBER
+      - uid: volume-calibration-confidence
+        title: Tracker calibration confidence low
+        condition: THRESHOLD
+        for: 2m
+        labels:
+          severity: warning
+          surface: tracking
+        annotations:
+          summary: >-
+            A tracker's solve confidence has fallen. Its camera's background
+            alignment is degrading.
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: grafanacloud-prom
+            model:
+              refId: A
+              instant: true
+              expr: min(stage_tracker_calibration_confidence)
+          - refId: THRESHOLD
+            datasourceUid: __expr__
+            model:
+              refId: THRESHOLD
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: lt, params: [0.75] }
+
+      - uid: volume-queue-backup
+        title: Render queue backing up
+        condition: THRESHOLD
+        for: 2m
+        labels:
+          severity: warning
+          surface: render_pool
+        annotations:
+          summary: >-
+            Frames are being re-queued faster than they clear. The wall will
+            start falling behind the camera.
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: grafanacloud-prom
+            model:
+              refId: A
+              instant: true
+              expr: max(stage_render_queue_depth)
+          - refId: THRESHOLD
+            datasourceUid: __expr__
+            model:
+              refId: THRESHOLD
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [24] }
