@@ -35,3 +35,6 @@ ui/tsconfig.tsbuildinfo
 # the repo carries the deliverable only.
 BUILD_SPEC.md
 CLAUDE.md
+
+# Captured metric baselines, for before/after comparison during testing.
+.baselines/
