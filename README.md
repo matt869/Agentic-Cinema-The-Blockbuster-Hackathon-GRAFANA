@@ -167,6 +167,10 @@ python -m simulator.stage --seconds 60 --fault genlock_loss
 uvicorn api.main:app --port 7860
 cd ui && npm install && npm run build           # then open http://localhost:7860
 cd ui && npm run dev                            # or hot-reload on :5173
+
+# tests
+pip install -r requirements.txt -r requirements-dev.txt
+python -m pytest tests/ -q
 ```
 
 Docker:
@@ -186,7 +190,7 @@ git remote add space https://huggingface.co/spaces/<user>/volume-ops
 git push space main
 ```
 
-Set the five secrets under **Settings → Variables and secrets**; they arrive
+Set the six secrets under **Settings → Variables and secrets**; they arrive
 as environment variables:
 
 ```
@@ -194,6 +198,12 @@ GRAFANA_OTLP_ENDPOINT   GRAFANA_OTLP_INSTANCE_ID   GRAFANA_OTLP_TOKEN
 GRAFANA_URL             GRAFANA_SERVICE_ACCOUNT_TOKEN
 GOOGLE_API_KEY
 ```
+
+A missing or misspelled secret degrades the demo rather than killing it: the
+container stays up, the UI still loads, `GET /health` names the variable that
+is missing in `simulator_error`, and the fault routes answer 503. That is
+deliberate — a crash loop on a host that injects secrets for you hides the
+reason in container logs where nobody looks.
 
 The simulator runs inside the container on a background thread started by the
 FastAPI lifespan, so telemetry flows whenever the Space is awake — it does not

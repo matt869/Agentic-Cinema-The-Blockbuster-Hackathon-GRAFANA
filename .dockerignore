@@ -1,0 +1,50 @@
+# The build context is uploaded to the daemon in full, and every COPY reads
+# from it. Two things here are not merely wasteful but actively break the
+# build if they get in: a Windows/macOS ui/node_modules would land on top of
+# the Linux one installed by `npm ci` (esbuild and rollup ship per-platform
+# native binaries), and a stale tsconfig.tsbuildinfo makes `tsc -b` skip
+# compilation it still needs to do.
+
+# Secrets — must never enter an image layer or the build cache.
+.env
+.env.*
+!.env.example
+
+# Virtualenvs and caches
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.cache/
+
+# Node: reinstalled inside the ui stage for the target platform
+node_modules/
+ui/node_modules/
+ui/dist/
+ui/.vite/
+ui/tsconfig.tsbuildinfo
+
+# VCS and local tooling
+.git/
+.gitignore
+.tools/
+
+# Not needed at runtime
+tests/
+grafana/
+README.md
+LICENSE
+Dockerfile
+.dockerignore
+
+# Working documents, not project source.
+BUILD_SPEC.md
+CLAUDE.md
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

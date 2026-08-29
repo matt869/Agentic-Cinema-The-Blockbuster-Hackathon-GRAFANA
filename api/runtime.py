@@ -38,6 +38,8 @@ class StageRunner:
         #: Guards start/stop themselves; self._lock guards a tick in progress.
         self._start_lock = threading.RLock()
         self.ticks = 0
+        #: Why the last start() failed, or None. Surfaced on /health.
+        self.start_error: str | None = None
 
     @property
     def running(self) -> bool:
@@ -56,7 +58,22 @@ class StageRunner:
             if self.running:
                 log.info("stage simulator already running, not starting again")
                 return
-            self._emitter = StageEmitter()
+            try:
+                self._emitter = StageEmitter()
+            except Exception as exc:
+                # Constructing the emitter reads the OTLP credentials, so a
+                # missing or misspelled secret surfaces here. Raising would
+                # abort the lifespan and take the whole app down with it --
+                # on a host that injects secrets for us, one wrong variable
+                # would become a crash loop whose reason is visible only in
+                # container logs. Stay up instead: the UI still loads, the
+                # fault routes already answer 503, and /health names the
+                # failure to whoever opens the page.
+                self._emitter = None
+                self.start_error = f"{type(exc).__name__}: {exc}"
+                log.exception("stage simulator failed to start")
+                return
+            self.start_error = None
             self._stop.clear()
             self._thread = threading.Thread(
                 target=self._loop, name="stage-simulator", daemon=True

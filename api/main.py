@@ -80,6 +80,7 @@ def health() -> dict[str, object]:
     return {
         "status": "ok",
         "simulator_running": stage_runner.running,
+        "simulator_error": stage_runner.start_error,
         "ticks": stage_runner.ticks,
         "grafana_configured": bool(os.environ.get("GRAFANA_URL")),
         "vertex_project": os.environ.get("GOOGLE_CLOUD_PROJECT") or None,

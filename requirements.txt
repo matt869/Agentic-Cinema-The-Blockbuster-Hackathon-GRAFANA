@@ -1,6 +1,5 @@
 google-adk[mcp]
 google-genai
-google-cloud-aiplatform
 fastapi
 uvicorn[standard]
 pydantic>=2

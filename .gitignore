@@ -30,3 +30,8 @@ ui/tsconfig.tsbuildinfo
 
 # Development-only triage cache
 .cache/
+
+# Working documents, not project source. Kept locally, never shipped --
+# the repo carries the deliverable only.
+BUILD_SPEC.md
+CLAUDE.md

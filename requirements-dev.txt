@@ -1,0 +1,5 @@
+# Test-only dependencies. Deliberately separate from requirements.txt: the
+# Dockerfile installs that file, and the image has no reason to carry a test
+# runner. Install with:  pip install -r requirements.txt -r requirements-dev.txt
+-r requirements.txt
+pytest>=8
