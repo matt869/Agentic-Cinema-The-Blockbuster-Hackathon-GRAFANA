@@ -130,20 +130,29 @@ class ScorerAgent(BaseAgent):
         )
 
 
-def build_root_agent() -> SequentialAgent:
-    """triage -> investigator -> scorer -> brief."""
+def build_root_agent(include_triage: bool = True) -> SequentialAgent:
+    """triage -> investigator -> scorer -> brief.
+
+    ``include_triage=False`` omits the first step, for the development path
+    where a cached plan has already been written into session state. The
+    investigator reads ``state["triage"]`` either way, so the pipeline behaves
+    identically -- it just does not pay for the call again.
+    """
+    steps: list[BaseAgent] = []
+    if include_triage:
+        steps.append(build_triage_agent())
+    steps += [
+        build_investigator(),
+        ScorerAgent(name="scorer", description="Deterministic severity and cost."),
+        build_brief_agent(),
+    ]
     return SequentialAgent(
         name="volume_ops",
         description=(
             "Investigates a volume stage alert and reports it in crew language "
             "with a cost attached."
         ),
-        sub_agents=[
-            build_triage_agent(),
-            build_investigator(),
-            ScorerAgent(name="scorer", description="Deterministic severity and cost."),
-            build_brief_agent(),
-        ],
+        sub_agents=steps,
     )
 
 

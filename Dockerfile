@@ -1,5 +1,14 @@
 # Multi-stage: build the UI, then serve it as static files from FastAPI in a
 # single container. One image, one port, one URL.
+#
+# Target is Hugging Face Spaces (Docker SDK), which expects the app on 7860
+# and injects Space secrets as environment variables. Nothing here is
+# Spaces-specific beyond the port default -- PORT is still honoured, so the
+# same image runs anywhere.
+#
+# The stage simulator runs INSIDE this container on a background thread
+# started by the FastAPI lifespan, so telemetry flows whenever the Space is
+# awake. It does not depend on anyone's laptop being on.
 
 # ---------------------------------------------------------------- UI build
 FROM node:22-slim AS ui
@@ -42,12 +51,17 @@ COPY --from=ui /ui/dist ./ui/dist
 # Resolved from PATH by agent/mcp_config.py.
 ENV MCP_GRAFANA_BINARY=/usr/local/bin/mcp-grafana
 
-# Cloud Run supplies PORT; default for local runs.
-ENV PORT=8080
-EXPOSE 8080
+# Hugging Face Spaces expects 7860. Any host supplying PORT overrides it.
+ENV PORT=7860
+EXPOSE 7860
 
-# Non-root. The simulator and MCP server both run fine unprivileged.
-RUN useradd --create-home --uid 10001 stage && chown -R stage:stage /app
+# Non-root, UID 1000 to match the Spaces runtime. The simulator and the MCP
+# server both run fine unprivileged.
+RUN useradd --create-home --uid 1000 stage && chown -R stage:stage /app
 USER stage
+ENV HOME=/home/stage
 
-CMD ["sh", "-c", "exec uvicorn api.main:app --host 0.0.0.0 --port ${PORT}"]
+# Exactly one worker, deliberately. Each worker process would construct its
+# own StageEmitter and write the same Prometheus series concurrently, which
+# Mimir sees as out-of-order samples rather than as an obvious failure.
+CMD ["sh", "-c", "exec uvicorn api.main:app --host 0.0.0.0 --port ${PORT} --workers 1"]

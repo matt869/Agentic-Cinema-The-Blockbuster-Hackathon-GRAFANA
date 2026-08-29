@@ -1,3 +1,14 @@
+---
+title: Volume Ops
+emoji: 🎬
+colorFrom: indigo
+colorTo: purple
+sdk: docker
+app_port: 7860
+pinned: false
+license: mit
+---
+
 # Volume Ops
 
 An agentic on-call system for a virtual production LED volume stage — the kind
@@ -33,7 +44,7 @@ Built for the Agentic Cinema hackathon, Grafana track.
 │                                                               │
 │   triage ──────► investigator ──────► scorer ──────► brief    │
 │   LlmAgent       LoopAgent            PURE PYTHON   LlmAgent  │
-│   Gemini         Gemini, max 8        no LLM        Gemini    │
+│   flash-lite     flash, max 4         no LLM        flash     │
 │                  iterations                                   │
 └───────┬───────────────────────────────────────────────────────┘
         │ every step published as it happens
@@ -60,7 +71,7 @@ anywhere in `agent/` or `api/`.
 | Toolset construction | [`agent/mcp_config.py:141`](agent/mcp_config.py#L141) — `build_grafana_toolset()` returns an ADK `McpToolset` |
 | Server launch | [`agent/mcp_config.py:120`](agent/mcp_config.py#L120) — `StdioServerParameters(command=…)` spawns the binary |
 | Tool allowlist | [`agent/mcp_config.py:39`](agent/mcp_config.py#L39) — `ALLOWED_TOOLS`, enforced server-side at [`:123`](agent/mcp_config.py#L123) and client-side at [`:145`](agent/mcp_config.py#L145) |
-| Handed to the agent | [`agent/investigator.py:141`](agent/investigator.py#L141) — `tools=[build_grafana_toolset(), *TRACE_TOOLS]` |
+| Handed to the agent | [`agent/investigator.py:142`](agent/investigator.py#L142) — `tools=[build_grafana_toolset(), *TRACE_TOOLS]` |
 
 If Grafana is unreachable the toolset raises and the investigation fails
 loudly with the error surfaced to the UI. It never falls back to fake data.
@@ -79,16 +90,22 @@ search_dashboards  alerting_manage_rules   list_incidents
 
 ## Where Gemini is called
 
-Model names and the shared retry policy live in [`agent/llm.py`](agent/llm.py):
-flash at [`:30`](agent/llm.py#L30), the brief model at [`:36`](agent/llm.py#L36).
+Model names and the shared retry policy live in [`agent/llm.py`](agent/llm.py).
 Both Gemini backends work — set `GOOGLE_API_KEY` for the Gemini Developer API,
 or `GOOGLE_GENAI_USE_VERTEXAI=true` with a GCP project for Vertex AI.
 
-| Agent | Model | Where |
-|---|---|---|
-| Triage | `gemini-3.6-flash` | [`agent/triage.py:65`](agent/triage.py#L65) |
-| Investigator | `gemini-3.6-flash` | [`agent/investigator.py:138`](agent/investigator.py#L138) |
-| Brief | `gemini-3.6-flash` | [`agent/brief.py:90`](agent/brief.py#L90) |
+Triage runs on a different model from the investigation loop on purpose. Free-tier
+request limits are metered per model, so splitting the pipeline gives it two
+independent daily budgets instead of one shared pool.
+
+| Agent | Model | Defined | Used |
+|---|---|---|---|
+| Triage | `gemini-3.1-flash-lite` | [`llm.py:32`](agent/llm.py#L32) | [`triage.py:67`](agent/triage.py#L67) |
+| Investigator | `gemini-3.6-flash` | [`llm.py:36`](agent/llm.py#L36) | [`investigator.py:139`](agent/investigator.py#L139) |
+| Brief | `gemini-3.6-flash` | [`llm.py:37`](agent/llm.py#L37) | [`brief.py:90`](agent/brief.py#L90) |
+
+The loop is capped at 4 iterations ([`investigator.py:40`](agent/investigator.py#L40)),
+raisable to the spec's 8 via `VOLUME_OPS_MAX_ITERATIONS`.
 
 ## Where no model is called
 
@@ -147,8 +164,8 @@ python -m simulator.stage                       # 1 Hz, runs indefinitely
 python -m simulator.stage --seconds 60 --fault genlock_loss
 
 # full app — API + UI + simulator, one process
-uvicorn api.main:app --port 8080
-cd ui && npm install && npm run build           # then open http://localhost:8080
+uvicorn api.main:app --port 7860
+cd ui && npm install && npm run build           # then open http://localhost:7860
 cd ui && npm run dev                            # or hot-reload on :5173
 ```
 
@@ -156,8 +173,32 @@ Docker:
 
 ```bash
 docker build -t volume-ops .
-docker run -p 8080:8080 --env-file .env volume-ops
+docker run -p 7860:7860 --env-file .env volume-ops   # http://localhost:7860
 ```
+
+### Deploying
+
+Hugging Face Spaces, Docker SDK. The frontmatter at the top of this file is
+what selects it — `sdk: docker`, `app_port: 7860`.
+
+```bash
+git remote add space https://huggingface.co/spaces/<user>/volume-ops
+git push space main
+```
+
+Set the five secrets under **Settings → Variables and secrets**; they arrive
+as environment variables:
+
+```
+GRAFANA_OTLP_ENDPOINT   GRAFANA_OTLP_INSTANCE_ID   GRAFANA_OTLP_TOKEN
+GRAFANA_URL             GRAFANA_SERVICE_ACCOUNT_TOKEN
+GOOGLE_API_KEY
+```
+
+The simulator runs inside the container on a background thread started by the
+FastAPI lifespan, so telemetry flows whenever the Space is awake — it does not
+depend on any laptop being on. A stranger can open the URL, inject a fault
+from the panel, and watch a full investigation.
 
 ---
 

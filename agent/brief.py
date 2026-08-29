@@ -1,6 +1,6 @@
 """Crew-language output.
 
-An ``LlmAgent`` on gemini-2.5-pro that converts the scored investigation into
+An ``LlmAgent`` that converts the scored investigation into
 something a film crew can act on: what is broken, what it costs, what to do,
 and how long the fix takes.
 

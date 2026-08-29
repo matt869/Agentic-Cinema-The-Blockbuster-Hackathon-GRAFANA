@@ -1,9 +1,9 @@
 """Investigation loop.
 
-A ``LoopAgent`` on gemini-2.5-flash holding the curated MCP toolset. Each
+A ``LoopAgent`` holding the curated MCP toolset. Each
 iteration picks the highest-value untested hypothesis, queries Grafana,
 records evidence, updates confidence, and decides whether to continue. Hard
-stop at 8 iterations; early exit once a hypothesis passes 0.85 confidence with
+stop at MAX_ITERATIONS; early exit once a hypothesis passes 0.85 confidence with
 at least two evidence items.
 
 Two properties are load-bearing and neither is left to inference:
@@ -33,10 +33,11 @@ from agent.trace_tools import (
     TRACE_TOOLS,
 )
 
-#: Spec value is 8. Overridable only so a constrained free-tier key can finish
-#: a whole investigation inside its 20-requests-per-day ceiling; the default is
-#: unchanged.
-MAX_ITERATIONS = int(os.environ.get("VOLUME_OPS_MAX_ITERATIONS", "8"))
+#: BUILD_SPEC allows up to 8. Four is the working default: both scenarios that
+#: have run end to end converged in well under four, and each unused iteration
+#: is a request against a metered daily budget. 8 remains the hard ceiling if
+#: raised via the environment.
+MAX_ITERATIONS = int(os.environ.get("VOLUME_OPS_MAX_ITERATIONS", "4"))
 
 INSTRUCTION = f"""\
 You are the on-call investigator for a virtual production LED volume stage.

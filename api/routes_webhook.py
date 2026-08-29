@@ -28,6 +28,7 @@ from pydantic import BaseModel
 from agent.models import Alert
 from agent.mcp_config import close_toolsets
 from agent.root import SCORED_KEY, build_root_agent
+from agent.triage import load_cached, save_cached
 from api.runtime import event_bus, stage_runner
 
 log = logging.getLogger("api.webhook")
@@ -152,16 +153,26 @@ async def run_investigation(investigation_id: str, alert: Alert) -> None:
         {"type": "started", "alert": alert.rule_name, "summary": alert.summary},
     )
     try:
+        # Development only, and off unless VOLUME_OPS_CACHE_TRIAGE is set.
+        cached_plan = load_cached(alert)
         runner = Runner(
             app_name=APP_NAME,
-            agent=build_root_agent(),
+            agent=build_root_agent(include_triage=cached_plan is None),
             session_service=_session_service,
         )
+        initial: dict[str, Any] = {"alert": alert.model_dump(mode="json")}
+        if cached_plan is not None:
+            initial["triage"] = cached_plan
+            event_bus.publish(
+                investigation_id,
+                {"type": "thought", "author": "triage",
+                 "text": "using cached triage plan (development mode)"},
+            )
         session = await _session_service.create_session(
             app_name=APP_NAME,
             user_id="stage",
             session_id=investigation_id,
-            state={"alert": alert.model_dump(mode="json")},
+            state=initial,
         )
         message = types.Content(
             role="user",
@@ -180,6 +191,8 @@ async def run_investigation(investigation_id: str, alert: Alert) -> None:
             app_name=APP_NAME, user_id="stage", session_id=session.id
         )
         state = final.state if final else {}
+        if cached_plan is None:
+            save_cached(alert, state.get("triage"))
         event_bus.publish(
             investigation_id,
             {

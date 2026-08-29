@@ -27,3 +27,6 @@ Thumbs.db
 
 # TypeScript incremental build cache
 ui/tsconfig.tsbuildinfo
+
+# Development-only triage cache
+.cache/

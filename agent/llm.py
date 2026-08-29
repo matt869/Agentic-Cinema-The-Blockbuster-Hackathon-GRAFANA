@@ -1,16 +1,21 @@
-"""Shared Gemini model construction.
+"""Shared Gemini model construction and quota strategy.
 
-One place to set the model name and the retry policy every agent uses.
+One place to set model names and the retry policy every agent uses.
 
-The retry policy is not incidental. The Gemini API free tier allows five
-requests per minute per model, and a single investigation makes far more than
-that: triage, up to eight loop iterations, a further turn per tool call, and
-the brief. Without backoff the run dies partway through with a 429 and the
-investigation is lost after the expensive Grafana work has already been done.
+MODEL BUCKETS
+The Gemini free tier meters requests per model per day, so putting every
+agent on one model gives you a single shared pool that one investigation can
+drain. Splitting the pipeline across two models gives two independent pools:
+triage runs on a lite model, the investigator and brief share a second. The
+same run then costs two smaller budgets rather than one large one.
 
-The trade is latency, not correctness -- an investigation paced against a
-5 RPM ceiling takes minutes rather than seconds. On a paid tier the same code
-runs at full speed with no change.
+MODEL CHOICE
+Flash-class models throughout. No pro-tier model is used: on the free tier
+they report `generate_content_free_tier_requests limit: 0` -- a hard zero
+rather than a rate limit -- so a pro model cannot serve a request at all.
+
+Every name is overridable by environment variable, so moving models or
+backends is configuration rather than a code change.
 """
 
 from __future__ import annotations
@@ -23,25 +28,21 @@ from google.genai import types
 
 load_dotenv()
 
-#: BUILD_SPEC/CLAUDE.md specify gemini-2.5-flash and gemini-2.5-pro. Both were
-#: retired: the Gemini API answers 404 "no longer available to new users" and
-#: names the 3.x line as the replacement. gemini-3.6-flash is Google's own
-#: named successor to 2.5-flash.
-FLASH_MODEL = os.environ.get("VOLUME_OPS_MODEL", "gemini-3.6-flash")
+#: Triage is the cheap planning step and gets its own quota pool.
+TRIAGE_MODEL = os.environ.get("VOLUME_OPS_TRIAGE_MODEL", "gemini-3.1-flash-lite")
 
-#: The brief is specified to run on a pro-tier model. None is reachable on the
-#: free tier -- pro models report
-#: ``generate_content_free_tier_requests limit: 0``, a hard zero rather than a
-#: rate limit -- so it runs on flash. Change this when a paid key is available.
+#: The investigator does the real work. The brief shares its pool -- one call
+#: at the very end, after the loop has already finished spending.
+FLASH_MODEL = os.environ.get("VOLUME_OPS_MODEL", "gemini-3.6-flash")
 BRIEF_MODEL = os.environ.get("VOLUME_OPS_BRIEF_MODEL", FLASH_MODEL)
 
 #: Free tier is 5 requests/minute/model, so a retry must wait out a whole
 #: minute-window rather than back off from milliseconds.
 #:
 #: Kept deliberately shallow. Every retry is itself a billable request against
-#: the 20-per-day free-tier ceiling, so deep backoff spends the day's budget on
-#: waiting rather than investigating. Three attempts clears a per-minute limit
-#: without burning the daily allowance.
+#: the per-day ceiling, so deep backoff spends the day's budget on waiting
+#: rather than investigating. Three attempts clears a per-minute limit without
+#: burning the daily allowance.
 RETRY = types.HttpRetryOptions(
     attempts=3,
     initial_delay=20.0,

@@ -1,21 +1,32 @@
 """Alert intake.
 
-An ``LlmAgent`` on gemini-2.5-flash that takes a Grafana alert payload, forms
+An ``LlmAgent`` on a lite Gemini model that takes a Grafana alert payload, forms
 the initial hypotheses, and identifies which signals the investigator should
 examine first.
 
 Triage holds no tools on purpose. It reads the alert and decides where to
 look; the investigator does the querying. Keeping the two apart means the
-cheap step stays cheap and the expensive step starts with a plan.
+cheap step stays cheap and the expensive step starts with a plan -- and it
+lets triage run on its own model, so it draws from a separate daily quota
+pool rather than competing with the investigation loop.
 """
 
 from __future__ import annotations
 
+import hashlib
+import json
+import logging
+import os
+from pathlib import Path
+from typing import Any
+
 from google.adk.agents import LlmAgent
 
 from agent.mcp_config import GRAFANA_QUERY_GUIDE
-from agent.llm import FLASH_MODEL, build_model
-from agent.models import TriageResult
+from agent.llm import TRIAGE_MODEL, build_model
+from agent.models import Alert, TriageResult
+
+log = logging.getLogger("agent.triage")
 
 
 INSTRUCTION = f"""\
@@ -62,9 +73,61 @@ def build_triage_agent() -> LlmAgent:
     """The triage agent. No tools -- reasoning over the alert payload only."""
     return LlmAgent(
         name="triage",
-        model=build_model(FLASH_MODEL),
+        model=build_model(TRIAGE_MODEL),
         description="Reads a Grafana alert and plans the investigation.",
         instruction=INSTRUCTION,
         output_schema=TriageResult,
         output_key="triage",
     )
+
+
+# --------------------------------------------------------------------------
+# Development-only triage cache
+# --------------------------------------------------------------------------
+#
+# Triage is deterministic for a given alert: same payload, same plan. While
+# debugging anything downstream -- the loop, the scorer, the brief -- paying
+# for that call again on every run wastes a metered daily budget on a step
+# that is not under test.
+#
+# Off unless VOLUME_OPS_CACHE_TRIAGE is set, so a demo or a judged run always
+# does the real thing. The cache lives outside the package and is gitignored.
+
+CACHE_ENABLED = os.environ.get("VOLUME_OPS_CACHE_TRIAGE", "").lower() in {"1", "true", "yes"}
+_CACHE_PATH = Path(__file__).resolve().parent.parent / ".cache" / "triage.json"
+
+
+def cache_key(alert: Alert) -> str:
+    """Alerts with the same name and summary produce the same plan."""
+    raw = f"{alert.rule_name}||{alert.summary}||{sorted(alert.labels.items())}"
+    return hashlib.sha256(raw.encode()).hexdigest()[:16]
+
+
+def _read_cache() -> dict[str, Any]:
+    if not _CACHE_PATH.exists():
+        return {}
+    try:
+        return json.loads(_CACHE_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def load_cached(alert: Alert) -> dict[str, Any] | None:
+    """A previously stored triage plan, or None."""
+    if not CACHE_ENABLED:
+        return None
+    hit = _read_cache().get(cache_key(alert))
+    if hit is not None:
+        log.info("triage cache hit for %r -- skipping the call", alert.rule_name)
+    return hit
+
+
+def save_cached(alert: Alert, result: Any) -> None:
+    """Store a triage plan for reuse during development."""
+    if not CACHE_ENABLED or result is None:
+        return
+    cache = _read_cache()
+    cache[cache_key(alert)] = result
+    _CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    _CACHE_PATH.write_text(json.dumps(cache, indent=2, default=str), encoding="utf-8")
+    log.info("triage cached for %r", alert.rule_name)

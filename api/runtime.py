@@ -35,6 +35,8 @@ class StageRunner:
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
         self._lock = threading.Lock()
+        #: Guards start/stop themselves; self._lock guards a tick in progress.
+        self._start_lock = threading.RLock()
         self.ticks = 0
 
     @property
@@ -42,15 +44,25 @@ class StageRunner:
         return self._thread is not None and self._thread.is_alive()
 
     def start(self) -> None:
-        if self.running:
-            return
-        self._emitter = StageEmitter()
-        self._stop.clear()
-        self._thread = threading.Thread(
-            target=self._loop, name="stage-simulator", daemon=True
-        )
-        self._thread.start()
-        log.info("stage simulator thread started")
+        """Start the simulator. Safe to call more than once.
+
+        The guard is inside the lock deliberately. A reload, a duplicated
+        lifespan, or two workers racing would otherwise each pass an unlocked
+        ``running`` check and start a second emitter -- two threads then write
+        the same Prometheus series at the same timestamps, which shows up as
+        out-of-order samples rather than as an obvious crash.
+        """
+        with self._start_lock:
+            if self.running:
+                log.info("stage simulator already running, not starting again")
+                return
+            self._emitter = StageEmitter()
+            self._stop.clear()
+            self._thread = threading.Thread(
+                target=self._loop, name="stage-simulator", daemon=True
+            )
+            self._thread.start()
+            log.info("stage simulator thread started")
 
     def _loop(self) -> None:
         assert self._emitter is not None
@@ -65,6 +77,10 @@ class StageRunner:
             self._stop.wait(max(0.0, TICK_SECONDS - (time.monotonic() - begin)))
 
     def stop(self) -> None:
+        with self._start_lock:
+            self._stop_locked()
+
+    def _stop_locked(self) -> None:
         self._stop.set()
         if self._thread is not None:
             self._thread.join(timeout=5)
