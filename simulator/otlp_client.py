@@ -79,7 +79,7 @@ def configure_stdout_logging(level: int = logging.INFO) -> None:
     root.setLevel(level)
 
 
-def _clean(name: str) -> str:
+def clean_env(name: str) -> str:
     """One environment value, with the damage a paste-in-a-box UI does undone.
 
     Render, Spaces and every other dashboard that takes secrets in a text
@@ -97,28 +97,51 @@ def _clean(name: str) -> str:
     return os.environ.get(name, "").strip().strip("\"'").strip()
 
 
+#: Signal paths the gateway serves under /otlp. Stripped before normalising,
+#: because Grafana's own quickstart displays the full metrics URL and people
+#: paste what they are shown.
+_SIGNAL_PATHS = ("/v1/metrics", "/v1/logs", "/v1/traces")
+
+
+def normalise_endpoint(raw: str) -> str:
+    """The OTLP base URL, from any of the forms people actually paste.
+
+    The gateway answers 404 -- never a useful error -- for every wrong shape,
+    and the SDK swallows it per batch, so a mistake here is silent. Measured
+    against the live gateway: the correct path returns 200 for metrics and
+    204 for logs; a trailing space, a missing /otlp, a doubled /otlp and a
+    trailing slash all return 404. Auth problems return 401, so a 404 always
+    means the path, never the credentials.
+
+    Accepts the base with or without /otlp, with or without a signal path
+    already appended, and normalises all of them to the one working base.
+    """
+    endpoint = raw.rstrip("/")
+    for signal in _SIGNAL_PATHS:
+        if endpoint.endswith(signal):
+            endpoint = endpoint[: -len(signal)].rstrip("/")
+            break
+    if not endpoint.endswith("/otlp"):
+        endpoint += "/otlp"
+    return endpoint
+
+
 def load_credentials() -> dict[str, str]:
     """Read OTLP credentials from the environment. Raises if any are missing."""
     load_dotenv()
     # Whitespace-only counts as missing: an env var set to " " is a mistake,
     # not a credential, and failing here names it instead of 404ing forever.
-    missing = [v for v in _REQUIRED_VARS if not _clean(v)]
+    missing = [v for v in _REQUIRED_VARS if not clean_env(v)]
     if missing:
         raise RuntimeError(
             "Missing required environment variables: "
             + ", ".join(missing)
             + ". Copy .env.example to .env and fill it in."
         )
-    endpoint = _clean("GRAFANA_OTLP_ENDPOINT").rstrip("/")
-    # The gateway serves the signal paths under /otlp. Accepting a base URL
-    # without it, and not doubling it when it is already there, means both of
-    # the forms people actually paste resolve to the one working URL.
-    if not endpoint.endswith("/otlp"):
-        endpoint += "/otlp"
     return {
-        "endpoint": endpoint,
-        "instance_id": _clean("GRAFANA_OTLP_INSTANCE_ID"),
-        "token": _clean("GRAFANA_OTLP_TOKEN"),
+        "endpoint": normalise_endpoint(clean_env("GRAFANA_OTLP_ENDPOINT")),
+        "instance_id": clean_env("GRAFANA_OTLP_INSTANCE_ID"),
+        "token": clean_env("GRAFANA_OTLP_TOKEN"),
     }
 
 

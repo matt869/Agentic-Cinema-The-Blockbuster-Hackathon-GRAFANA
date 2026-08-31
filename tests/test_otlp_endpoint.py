@@ -103,3 +103,50 @@ class TestWhitespaceOnlyIsMissing(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestSignalPathIsStripped(unittest.TestCase):
+    """Grafana's quickstart shows the full metrics URL, so people paste it.
+
+    Appending /otlp to a URL that already ends in a signal path produced
+    .../otlp/v1/metrics/otlp/v1/metrics -- a 404, and a worse one than the
+    input deserved.
+    """
+
+    def _endpoint(self, raw: str) -> str:
+        with patch.dict(os.environ, _env(raw), clear=False), \
+             patch("simulator.otlp_client.load_dotenv"):
+            return load_credentials()["endpoint"]
+
+    def test_full_metrics_url(self) -> None:
+        self.assertEqual(self._endpoint(GOOD + "/v1/metrics"), WANT)
+
+    def test_full_logs_url(self) -> None:
+        self.assertEqual(self._endpoint(GOOD + "/v1/logs"), WANT)
+
+    def test_full_traces_url(self) -> None:
+        self.assertEqual(self._endpoint(GOOD + "/v1/traces"), WANT)
+
+    def test_full_url_with_trailing_slash(self) -> None:
+        self.assertEqual(self._endpoint(GOOD + "/v1/metrics/"), WANT)
+
+    def test_full_url_quoted_and_padded(self) -> None:
+        self.assertEqual(self._endpoint(f'  "{GOOD}/v1/metrics"\n'), WANT)
+
+    def test_never_doubles_otlp(self) -> None:
+        for raw in (GOOD, GOOD + "/v1/metrics", GOOD + "/", GOOD + "\n"):
+            self.assertNotIn("/otlp/otlp", self._endpoint(raw))
+
+
+class TestHealthReportsResolvedEndpoint(unittest.TestCase):
+    """/health must show the URL in use, so a 404 is diagnosable remotely."""
+
+    def test_health_exposes_endpoint_but_no_credentials(self) -> None:
+        from api.main import health
+        env = _env(GOOD + "\n")
+        with patch.dict(os.environ, env, clear=False):
+            h = health()
+        self.assertEqual(h["otlp_endpoint"], f"{WANT}/v1/metrics")
+        blob = repr(h)
+        self.assertNotIn("glc_", blob, "token must never appear")
+        self.assertNotIn("123456", blob, "instance id must never appear")

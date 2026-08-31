@@ -26,7 +26,12 @@ from api.routes_faults import router as faults_router
 from api.routes_stream import router as stream_router
 from api.routes_webhook import router as webhook_router
 from api.runtime import stage_runner, stage_status
-from simulator.otlp_client import configure_stdout_logging
+from simulator.otlp_client import (
+    DEPLOYMENT,
+    clean_env,
+    configure_stdout_logging,
+    normalise_endpoint,
+)
 
 log = logging.getLogger("api.main")
 
@@ -88,12 +93,28 @@ def health() -> dict[str, object]:
         if os.environ.get("GOOGLE_GENAI_USE_VERTEXAI", "").strip().lower() == "true"
         else "ai_studio"
     )
+    # The URL telemetry is actually being posted to, after normalisation.
+    # Safe to publish: this is a shared public gateway hostname, not an
+    # account identifier -- the instance id and token are separate and stay
+    # out of here. Worth publishing because an OTLP export failure is logged
+    # per batch by the SDK and never names the URL, so without this the only
+    # way to tell a mangled endpoint from a bad credential is to read the
+    # container's logs. A 404 from this gateway always means the path.
+    try:
+        otlp = normalise_endpoint(clean_env("GRAFANA_OTLP_ENDPOINT")) + "/v1/metrics"
+    except Exception:  # pragma: no cover - never let /health fail
+        otlp = None
     return {
         "status": "ok",
         "simulator_running": stage_runner.running,
         "simulator_error": stage_runner.start_error,
         "ticks": stage_runner.ticks,
         "grafana_configured": bool(os.environ.get("GRAFANA_URL")),
+        "otlp_endpoint": otlp,
+        # Render exposes the deployed commit; absent elsewhere. Answers "is
+        # the fix actually live?" without reading a build log.
+        "commit": (os.environ.get("RENDER_GIT_COMMIT", "") or "")[:7] or None,
+        "deployment": DEPLOYMENT,
         "llm_backend": backend,
         "llm_configured": bool(
             os.environ.get("GOOGLE_CLOUD_PROJECT")
