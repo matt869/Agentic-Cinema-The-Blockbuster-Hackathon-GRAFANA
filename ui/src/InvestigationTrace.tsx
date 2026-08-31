@@ -129,7 +129,7 @@ function HypothesisCard({ h }: { h: Hypo }) {
       className={
         "slide-in rounded-xl border-2 p-4 transition-all duration-500 " +
         (h.rejected
-          ? "border-red-800/70 bg-red-950/20 opacity-80"
+          ? "border-red-800/70 bg-red-950/20 opacity-90"
           : h.confidence > 0.85
             ? "border-emerald-500 bg-emerald-950/25"
             : "border-slate-700 bg-slate-900/50")
