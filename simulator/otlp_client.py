@@ -31,6 +31,8 @@ from opentelemetry.sdk.resources import Resource
 # per-second resolution to be visible as a ramp rather than three data points.
 EXPORT_INTERVAL_MS = 1_000
 
+log = logging.getLogger("simulator.otlp")
+
 _REQUIRED_VARS = (
     "GRAFANA_OTLP_ENDPOINT",
     "GRAFANA_OTLP_INSTANCE_ID",
@@ -77,20 +79,46 @@ def configure_stdout_logging(level: int = logging.INFO) -> None:
     root.setLevel(level)
 
 
+def _clean(name: str) -> str:
+    """One environment value, with the damage a paste-in-a-box UI does undone.
+
+    Render, Spaces and every other dashboard that takes secrets in a text
+    field routinely deliver the value with a trailing newline, a stray space,
+    or wrapped in the quotes someone copied along with it. None of that is
+    visible in the UI and all of it survives into os.environ.
+
+    It matters because these strings are concatenated into a URL. Measured
+    against the real Grafana gateway: the correct path answers 200 for
+    metrics and 204 for logs, while a SINGLE trailing space answers 404 --
+    and a 404 per batch is logged by the SDK and swallowed, so the app keeps
+    serving happily while nothing is exported at all. Stripping here is the
+    difference between a demo that works and one that looks like it does.
+    """
+    return os.environ.get(name, "").strip().strip("\"'").strip()
+
+
 def load_credentials() -> dict[str, str]:
     """Read OTLP credentials from the environment. Raises if any are missing."""
     load_dotenv()
-    missing = [v for v in _REQUIRED_VARS if not os.environ.get(v)]
+    # Whitespace-only counts as missing: an env var set to " " is a mistake,
+    # not a credential, and failing here names it instead of 404ing forever.
+    missing = [v for v in _REQUIRED_VARS if not _clean(v)]
     if missing:
         raise RuntimeError(
             "Missing required environment variables: "
             + ", ".join(missing)
             + ". Copy .env.example to .env and fill it in."
         )
+    endpoint = _clean("GRAFANA_OTLP_ENDPOINT").rstrip("/")
+    # The gateway serves the signal paths under /otlp. Accepting a base URL
+    # without it, and not doubling it when it is already there, means both of
+    # the forms people actually paste resolve to the one working URL.
+    if not endpoint.endswith("/otlp"):
+        endpoint += "/otlp"
     return {
-        "endpoint": os.environ["GRAFANA_OTLP_ENDPOINT"].rstrip("/"),
-        "instance_id": os.environ["GRAFANA_OTLP_INSTANCE_ID"],
-        "token": os.environ["GRAFANA_OTLP_TOKEN"],
+        "endpoint": endpoint,
+        "instance_id": _clean("GRAFANA_OTLP_INSTANCE_ID"),
+        "token": _clean("GRAFANA_OTLP_TOKEN"),
     }
 
 
@@ -116,10 +144,13 @@ def build_meter_provider(
     continues -- a dropped batch must never stop the simulator.
     """
     creds = load_credentials()
-    exporter = OTLPMetricExporter(
-        endpoint=f"{creds['endpoint']}/v1/metrics",
-        headers=auth_headers(),
-    )
+    url = f"{creds['endpoint']}/v1/metrics"
+    # Say where the batches are going, once, at startup. An export failure is
+    # logged per batch by the SDK and never mentions the URL, so without this
+    # a 404 caused by a mangled endpoint looks identical to one caused by bad
+    # credentials -- and the first thing you need is the URL actually in use.
+    log.info("exporting metrics to %s", url)
+    exporter = OTLPMetricExporter(endpoint=url, headers=auth_headers())
     reader = PeriodicExportingMetricReader(
         exporter, export_interval_millis=EXPORT_INTERVAL_MS
     )
@@ -129,10 +160,11 @@ def build_meter_provider(
 def build_logger_provider(resource: Resource) -> LoggerProvider:
     """LoggerProvider exporting to Grafana Cloud (Loki) over OTLP/HTTP."""
     creds = load_credentials()
-    exporter = OTLPLogExporter(
-        endpoint=f"{creds['endpoint']}/v1/logs",
-        headers=auth_headers(),
-    )
+    url = f"{creds['endpoint']}/v1/logs"
+    # Debug, not info: one provider is built per stage service, so info here
+    # would print the same line three times on every start.
+    log.debug("exporting logs to %s", url)
+    exporter = OTLPLogExporter(endpoint=url, headers=auth_headers())
     provider = LoggerProvider(resource=resource)
     provider.add_log_record_processor(BatchLogRecordProcessor(exporter))
     return provider
