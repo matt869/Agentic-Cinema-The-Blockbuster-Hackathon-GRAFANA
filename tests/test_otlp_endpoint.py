@@ -150,3 +150,38 @@ class TestHealthReportsResolvedEndpoint(unittest.TestCase):
         blob = repr(h)
         self.assertNotIn("glc_", blob, "token must never appear")
         self.assertNotIn("123456", blob, "instance id must never appear")
+
+
+class TestDoublePaste(unittest.TestCase):
+    """A field that already held a value, pasted into again.
+
+    This is what Render actually stored, and it is the nastiest shape of the
+    lot: ".../otlphttps://.../otlp" ends in /otlp, so every other check passes
+    and the URL 404s with nothing looking wrong. Observed live via /health.
+    """
+
+    def _endpoint(self, raw: str) -> str:
+        with patch.dict(os.environ, _env(raw), clear=False), \
+             patch("simulator.otlp_client.load_dotenv"):
+            return load_credentials()["endpoint"]
+
+    def test_the_exact_value_render_stored(self) -> None:
+        self.assertEqual(self._endpoint(GOOD + GOOD), WANT)
+
+    def test_doubled_with_newline_between(self) -> None:
+        self.assertEqual(self._endpoint(f"{GOOD}\n{GOOD}"), WANT)
+
+    def test_doubled_with_signal_path(self) -> None:
+        self.assertEqual(self._endpoint(GOOD + GOOD + "/v1/metrics"), WANT)
+
+    def test_tripled(self) -> None:
+        self.assertEqual(self._endpoint(GOOD * 3), WANT)
+
+    def test_single_url_is_untouched(self) -> None:
+        # The guard must not fire on a normal value.
+        self.assertEqual(self._endpoint(GOOD), WANT)
+
+    def test_http_scheme_is_preserved_not_rewritten(self) -> None:
+        # Only de-duplicating, not "correcting" someone's deliberate choice.
+        plain = GOOD.replace("https://", "http://")
+        self.assertEqual(self._endpoint(plain), plain)

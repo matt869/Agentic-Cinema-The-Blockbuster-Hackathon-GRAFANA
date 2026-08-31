@@ -117,6 +117,16 @@ def normalise_endpoint(raw: str) -> str:
     already appended, and normalises all of them to the one working base.
     """
     endpoint = raw.rstrip("/")
+    # A field that already held a value and was pasted into again yields the
+    # URL twice, joined by nothing: ".../otlphttps://.../otlp". It ends in
+    # /otlp, so every check below passes and the result 404s. No legitimate
+    # URL contains a second scheme, and the later paste is the complete one,
+    # so keep from the last occurrence.
+    scheme = endpoint.rfind("://")
+    if scheme > 0:
+        start = endpoint.rfind("http", 0, scheme)
+        if start > 0:
+            endpoint = endpoint[start:]
     for signal in _SIGNAL_PATHS:
         if endpoint.endswith(signal):
             endpoint = endpoint[: -len(signal)].rstrip("/")
