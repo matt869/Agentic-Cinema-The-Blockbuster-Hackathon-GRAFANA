@@ -54,7 +54,7 @@ export default function App() {
           Agentic on-call for a virtual production LED stage
         </p>
         <div className="mono ml-auto text-[13px] text-slate-500">
-          Gemini on Vertex AI · grafana/mcp-grafana · Grafana Cloud
+          Gemini · grafana/mcp-grafana · Grafana Cloud
         </div>
       </header>
 

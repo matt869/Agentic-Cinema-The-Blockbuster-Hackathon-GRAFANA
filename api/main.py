@@ -76,14 +76,30 @@ app.include_router(stream_router)
 
 @app.get("/health", tags=["ops"])
 def health() -> dict[str, object]:
-    """Liveness plus enough state to tell whether the demo is actually up."""
+    """Liveness plus enough state to tell whether the demo is actually up.
+
+    Deliberately free of identifiers. This endpoint is public on a deployed
+    Space, so it reports whether each backend is *configured*, never which
+    account or project it points at -- a GCP project id on an unauthenticated
+    endpoint is an invitation to enumerate.
+    """
+    backend = (
+        "vertex"
+        if os.environ.get("GOOGLE_GENAI_USE_VERTEXAI", "").strip().lower() == "true"
+        else "ai_studio"
+    )
     return {
         "status": "ok",
         "simulator_running": stage_runner.running,
         "simulator_error": stage_runner.start_error,
         "ticks": stage_runner.ticks,
         "grafana_configured": bool(os.environ.get("GRAFANA_URL")),
-        "vertex_project": os.environ.get("GOOGLE_CLOUD_PROJECT") or None,
+        "llm_backend": backend,
+        "llm_configured": bool(
+            os.environ.get("GOOGLE_CLOUD_PROJECT")
+            if backend == "vertex"
+            else os.environ.get("GOOGLE_API_KEY")
+        ),
     }
 
 
