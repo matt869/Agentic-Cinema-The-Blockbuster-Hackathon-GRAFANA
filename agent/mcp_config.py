@@ -26,6 +26,8 @@ from pathlib import Path
 from dotenv import load_dotenv
 from google.adk.tools.mcp_tool.mcp_session_manager import StdioConnectionParams
 from google.adk.tools.mcp_tool.mcp_toolset import McpToolset
+
+from simulator.otlp_client import DEPLOYMENT
 from mcp import StdioServerParameters
 
 #: The tools this project is allowed to call. Widening this list is a
@@ -171,6 +173,31 @@ DATASOURCE UIDS (pass as datasourceUid):
 query_prometheus REQUIRES `endTime` (RFC3339 or 'now'). For queryType
 'range' you must also pass `startTime` and `stepSeconds`.
 
+DEPLOYMENT FILTER -- MANDATORY ON EVERY QUERY:
+More than one stage writes into this Grafana. They share metric names AND
+entity labels, so node_07 from another deployment is indistinguishable from
+yours. An unfiltered query silently interleaves two stages and every number
+you read is a blend of both. There is no error and no empty result -- just
+wrong values that look plausible.
+
+This deployment is `{DEPLOYMENT}`. Filter EVERY query on it.
+
+The two query languages place the filter differently. This is not optional
+formatting -- putting it in the wrong place either errors or silently matches
+nothing:
+
+  PromQL -- `deployment` IS a series label, so it goes INSIDE the selector:
+    CORRECT   stage_gpu_temp_celsius{{deployment="{DEPLOYMENT}", zone="north"}}
+    CORRECT   stage_render_queue_depth{{deployment="{DEPLOYMENT}"}}
+    WRONG     stage_gpu_temp_celsius{{zone="north"}}   <- blends deployments
+
+  LogQL -- `deployment` is structured metadata, NOT an index label, so it
+  goes AFTER the pipe like node and level:
+    CORRECT   {{service_name="render_worker"}} | deployment="{DEPLOYMENT}"
+    CORRECT   {{service_name="stage_control"}} | deployment="{DEPLOYMENT}" |= "patch"
+    WRONG     {{service_name="render_worker", deployment="{DEPLOYMENT}"}}
+              <- returns 0 lines, no error
+
 LOG QUERY FORM -- READ THIS CAREFULLY:
 Grafana Cloud promotes only `service.name` to a Loki index label. It is
 called `service_name`, NOT `service`. Every other field -- node, level,
@@ -185,6 +212,8 @@ sequence, tracker -- is structured metadata and CANNOT go in the {{}} selector.
 service_name is one of: stage_control, render_worker, tracker_daemon.
 
 METRICS AND THEIR LABELS:
+Every metric below ALSO carries `deployment`, which you must always match on
+as shown above. The labels listed are the ones that identify the entity.
   stage_camera_tracking_latency_ms      labels: camera, tracker   healthy 8-12
   stage_tracker_calibration_confidence  labels: tracker           healthy 0.95-0.98
   stage_led_wall_sync_drift_ms          labels: node              healthy 0.1-0.3

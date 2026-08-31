@@ -37,6 +37,17 @@ _REQUIRED_VARS = (
     "GRAFANA_OTLP_TOKEN",
 )
 
+#: Which stage produced a sample. A deployed Space and a laptop write the same
+#: metric names, with the same entity labels, into the same Grafana stack --
+#: node_07 from one is indistinguishable from node_07 from the other. Without
+#: this label the two stages merge into a single fictional stage: the agent
+#: reads interleaved samples from two independent random walks, and a
+#: before/after comparison measures nothing.
+#:
+#: Defaults to "local" so a laptop needs no configuration; a deployment sets
+#: DEPLOYMENT_ENV to something else ("space") to claim its own series.
+DEPLOYMENT: str = os.environ.get("DEPLOYMENT_ENV", "").strip() or "local"
+
 
 class JsonFormatter(logging.Formatter):
     """Structured stdout logging, per project conventions."""

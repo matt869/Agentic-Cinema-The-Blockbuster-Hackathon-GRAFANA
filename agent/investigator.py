@@ -26,7 +26,7 @@ import os
 from google.adk.agents import LlmAgent, LoopAgent
 
 from agent.llm import FLASH_MODEL, build_model
-from agent.mcp_config import GRAFANA_QUERY_GUIDE, build_grafana_toolset
+from agent.mcp_config import DEPLOYMENT, GRAFANA_QUERY_GUIDE, build_grafana_toolset
 from agent.trace_tools import (
     CONFIDENCE_EXIT,
     MIN_EVIDENCE_FOR_EXIT,
@@ -76,7 +76,7 @@ is better work than surveying the whole stage.
 ONE EXCEPTION -- ALWAYS SEE WHO ELSE IS COMPLAINING
 Before you settle on a culprit, run ONE query for error-level logs across the
 whole fleet, not just your suspect:
-  {{service_name="render_worker"}} | level="error"
+  {{service_name="render_worker"}} | deployment="{DEPLOYMENT}" | level="error"
 Note every entity that appears. If something other than your suspect is
 erroring, propose it as a hypothesis and resolve it explicitly -- confirm it or
 reject it on the evidence. Never leave a loud entity unexamined just because

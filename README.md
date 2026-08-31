@@ -141,6 +141,7 @@ python -m venv .venv && .venv/Scripts/pip install -r requirements.txt
 | `GOOGLE_GENAI_USE_VERTEXAI` | `false` for the Gemini Developer API, `true` for Vertex AI |
 | `GOOGLE_CLOUD_PROJECT` | GCP project — Vertex only |
 | `GOOGLE_CLOUD_LOCATION` | e.g. `us-central1` — Vertex only |
+| `DEPLOYMENT_ENV` | Label stamped on every metric and log. Defaults to `local`; a deployment sets its own (`space`) |
 
 For Vertex, authenticate with ADC instead of a key:
 
@@ -198,6 +199,14 @@ GRAFANA_OTLP_ENDPOINT   GRAFANA_OTLP_INSTANCE_ID   GRAFANA_OTLP_TOKEN
 GRAFANA_URL             GRAFANA_SERVICE_ACCOUNT_TOKEN
 GOOGLE_API_KEY
 ```
+
+Set `DEPLOYMENT_ENV=space` as a **variable** (not a secret — it is not
+sensitive, and you want to read it back). Every metric and log the Space emits
+is stamped with it, and every Grafana query the agent writes filters on it.
+Without it a deployed Space and a laptop write the same series names with the
+same entity labels into one stack: `node_07` from one is indistinguishable
+from `node_07` from the other, so the agent silently reads a blend of two
+stages — no error, no empty result, just plausible wrong numbers.
 
 A missing or misspelled secret degrades the demo rather than killing it: the
 container stays up, the UI still loads, `GET /health` names the variable that

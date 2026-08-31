@@ -23,6 +23,7 @@ from opentelemetry.sdk.metrics.view import ExplicitBucketHistogramAggregation, V
 from simulator import signals as sg
 from simulator.faults.base import FAULT_NAMES, Fault, LogLine, Readings, build_fault
 from simulator.otlp_client import (
+    DEPLOYMENT,
     build_logger_provider,
     build_meter_provider,
     configure_stdout_logging,
@@ -33,6 +34,17 @@ log = logging.getLogger("simulator.stage")
 
 TICK_SECONDS = 1.0
 LOGS_PER_TICK = (2, 5)
+
+
+def tag(**attrs: object) -> dict[str, object]:
+    """Attributes for one exported point, always carrying the deployment.
+
+    A data-point attribute rather than a resource attribute, deliberately.
+    Grafana Cloud promotes only a fixed set of resource attributes to series
+    labels; anything else lands in ``target_info`` instead of on the series,
+    where no PromQL selector the agent writes would ever see it.
+    """
+    return {"deployment": DEPLOYMENT, **attrs}
 
 _SEVERITY = {
     "debug": (SeverityNumber.DEBUG, "DEBUG"),
@@ -96,7 +108,7 @@ class StageEmitter:
 
         # A counter needs one observation to exist as a series at all.
         for node in sg.NODES:
-            self.c_failures.add(0, {"node": node, "sequence": sg.NODE_SEQUENCE[node]})
+            self.c_failures.add(0, tag(node=node, sequence=sg.NODE_SEQUENCE[node]))
 
     # -------------------------------------------------------------- faults
     def start_fault(self, name: str) -> Fault:
@@ -132,7 +144,7 @@ class StageEmitter:
             severity_number=number,
             severity_text=text,
             body=line.body,
-            attributes={"level": line.level, **line.attributes},
+            attributes=tag(level=line.level, **line.attributes),
         )
 
     # --------------------------------------------------------------- tick
@@ -156,23 +168,23 @@ class StageEmitter:
     def export(self, r: Readings) -> None:
         """Push one tick of readings to Grafana Cloud."""
         for (cam, trk), value in r.latency.items():
-            self.g_latency.set(value, {"camera": cam, "tracker": trk})
+            self.g_latency.set(value, tag(camera=cam, tracker=trk))
         for trk, value in r.confidence.items():
-            self.g_confidence.set(value, {"tracker": trk})
+            self.g_confidence.set(value, tag(tracker=trk))
         for node in sg.NODES:
-            attrs = {"node": node}
+            attrs = tag(node=node)
             self.g_sync.set(r.sync[node], attrs)
             self.g_vram_used.set(r.vram_fraction[node] * sg.VRAM_TOTAL_BYTES, attrs)
             self.g_vram_total.set(float(sg.VRAM_TOTAL_BYTES), attrs)
-            self.g_temp.set(r.temp[node], {"node": node, "zone": sg.NODE_ZONE[node]})
+            self.g_temp.set(r.temp[node], tag(node=node, zone=sg.NODE_ZONE[node]))
             self.h_frame.record(
                 r.frame_duration[node],
-                {"node": node, "sequence": sg.NODE_SEQUENCE[node]},
+                tag(node=node, sequence=sg.NODE_SEQUENCE[node]),
             )
         for seq, value in r.queue.items():
-            self.g_queue.set(round(value), {"sequence": seq})
+            self.g_queue.set(round(value), tag(sequence=seq))
         for (node, seq), count in r.failures.items():
-            self.c_failures.add(count, {"node": node, "sequence": seq})
+            self.c_failures.add(count, tag(node=node, sequence=seq))
         for line in r.logs:
             self.emit_log(line)
 
