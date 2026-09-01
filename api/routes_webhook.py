@@ -27,6 +27,7 @@ from pydantic import BaseModel
 
 from agent.models import Alert
 from agent.mcp_config import close_toolsets
+from agent.query_cache import CACHE_MARKER
 from agent.root import SCORED_KEY, build_root_agent
 from agent.triage import load_cached, save_cached
 from api.runtime import event_bus, stage_runner
@@ -138,6 +139,19 @@ def _emit_from_event(investigation_id: str, event: Any) -> None:
                     {"type": "query", "author": author, "tool": call.name,
                      "args": dict(call.args or {})},
                 )
+        # A cache hit produces a function_response with no preceding real
+        # call, so it would otherwise be invisible: the trace would simply
+        # show one fewer query and nothing to explain why.
+        resp = getattr(part, "function_response", None)
+        if resp is not None:
+            body = getattr(resp, "response", None)
+            if isinstance(body, dict) and body.get(CACHE_MARKER) == "hit":
+                event_bus.publish(
+                    investigation_id,
+                    {"type": "cache_hit", "author": author,
+                     "tool": getattr(resp, "name", "") or ""},
+                )
+
         text = getattr(part, "text", None)
         if text and text.strip():
             event_bus.publish(

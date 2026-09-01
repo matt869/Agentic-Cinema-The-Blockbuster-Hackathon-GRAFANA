@@ -27,6 +27,7 @@ from google.adk.agents import LlmAgent, LoopAgent
 
 from agent.llm import FLASH_MODEL, build_model
 from agent.mcp_config import DEPLOYMENT, GRAFANA_QUERY_GUIDE, build_grafana_toolset
+from agent.query_cache import after_tool, before_tool
 from agent.trace_tools import (
     CONFIDENCE_EXIT,
     MIN_EVIDENCE_FOR_EXIT,
@@ -70,8 +71,15 @@ sweep GPU temperature, VRAM, queue depth and sync drift "to be thorough" --
 that is four wasted queries that tell you nothing about tracking. If a signal
 cannot change your mind about the current hypothesis, do not query it.
 
-Aim to finish in four or five queries. Reaching a confirmed root cause quickly
-is better work than surveying the whole stage.
+Aim to finish in five or six queries. Two of those are REQUIRED and are
+described below -- the fleet-wide error sweep and the multi-hour stage_control
+search. Budget for them; they are not the ones to cut. Reaching a confirmed
+root cause quickly is better work than surveying the whole stage, but a fast
+answer that skipped the required queries is not a root cause, it is a guess.
+
+Never send the same query twice. A repeated read returns a cached result and
+tells you nothing you did not already have -- if you need a result again,
+re-read it in this transcript.
 
 ONE EXCEPTION -- ALWAYS SEE WHO ELSE IS COMPLAINING
 Before you settle on a culprit, run ONE query for error-level logs across the
@@ -114,16 +122,34 @@ That reasoning is worth far more to the crew than "its other metrics look
 fine" -- healthy metrics show it is not broken, but timing shows it is not
 RESPONSIBLE. Prefer the timing argument. Use metrics only to support it.
 
-YOU MAY WIDEN THE TIME WINDOW -- AND OFTEN MUST
-The alert window contains the SYMPTOM. The CAUSE is frequently outside it.
-A leak, a slow ramp, or a creeping failure was usually set in motion by a
-change hours earlier: a driver patch, a recalibration, a reposition, a config
-edit. Those show up as ordinary info-level logs in stage_control, not errors.
+WIDEN THE WINDOW BEFORE YOU CONCLUDE -- THIS IS A REQUIREMENT
+The alert window contains the SYMPTOM. The CAUSE is very often outside it.
+A leak, a slow ramp or a creeping failure was set in motion by a change hours
+earlier: a driver patch, a recalibration, a reposition, a config edit. Those
+appear as ordinary INFO-level logs in stage_control, never as errors, and
+never inside a minutes-wide alert window.
 
-If you see a slow ramp or a resource climbing steadily, do NOT stop at the
-alert window. Query stage_control logs over the last several HOURS and look
-for a change event that predates the symptom. Set from_outside_alert_window
-to true when you do. Finding the symptom is not finding the cause.
+You MUST NOT call conclude until you have done ONE of these:
+  a) found a change event that predates the symptom and explains it, or
+  b) run at least one stage_control query spanning SEVERAL HOURS and
+     established that no such event exists.
+
+The query that satisfies (b):
+  {{service_name="stage_control"}} | deployment="{DEPLOYMENT}"
+  with startRfc3339 of "now-6h". NOT "now-1h" -- an hour is still inside the
+  incident, and the cause you are looking for predates it.
+
+Do NOT make this conditional on whether the data "looks like" a ramp. An
+instant reading of 97% tells you nothing about how it got there, and a high
+number with no change event behind it is precisely the case this rule exists
+for. Querying error logs is not a substitute: the cause is an INFO line, so
+filtering on level="error" is guaranteed to miss it.
+
+If you have a symptom and no change event that explains it, you are not
+finished, however confident the symptom makes you feel.
+
+Set from_outside_alert_window to true on evidence found this way. Finding the
+symptom is not finding the cause.
 
 Stop when a hypothesis exceeds {CONFIDENCE_EXIT} confidence with at least
 {MIN_EVIDENCE_FOR_EXIT} evidence items. You have at most {MAX_ITERATIONS}
@@ -140,6 +166,12 @@ def build_investigation_step() -> LlmAgent:
         description="Tests one hypothesis against live Grafana data.",
         instruction=INSTRUCTION,
         tools=[build_grafana_toolset(), *TRACE_TOOLS],
+        # A repeated Grafana read is served from this investigation's cache
+        # instead of going out again. Observed in a live run: the same LogQL
+        # sent twice, 27s apart, which at 20 model calls per day is 5% of the
+        # budget spent re-reading something already in the transcript.
+        before_tool_callback=before_tool,
+        after_tool_callback=after_tool,
     )
 
 
