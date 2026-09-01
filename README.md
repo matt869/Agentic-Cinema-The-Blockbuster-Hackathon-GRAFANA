@@ -143,6 +143,7 @@ python -m venv .venv && .venv/Scripts/pip install -r requirements.txt
 | `GOOGLE_CLOUD_LOCATION` | e.g. `us-central1` — Vertex only |
 | `DEPLOYMENT_ENV` | Label stamped on every metric and log. Defaults to `local`; a deployment sets its own (`render`) |
 | `VOLUME_OPS_VRAM_RAMP_S` | Seconds for the VRAM leak to climb 55%→97%. Defaults to `180`; `1200` restores the original 20-minute timing |
+| `VOLUME_OPS_THERMAL_RAMP_S` | Seconds for the thermal ramp. Defaults to `900` (15 min, deliberately untuned); shorten only for recording |
 
 For Vertex, authenticate with ADC instead of a key:
 

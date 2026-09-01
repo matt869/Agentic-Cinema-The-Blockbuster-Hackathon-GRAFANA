@@ -1,6 +1,7 @@
 """Fault 4 -- thermal throttle. BUILD BUT DO NOT TUNE AGAINST.
 
-Every node in the north zone rises 68 -> 87 C over 15 minutes and frame
+Every node in the north zone rises 68 -> 87 C over RAMP_S (15 minutes by
+default) and frame
 duration degrades from a p99 of 0.038 to 0.071, with throttle notices at
 debug level only. No errors, no failures, no alert fires -- this is silent
 quality decay, the kind that only shows up in the dailies.
@@ -13,13 +14,26 @@ be adjusted to make an agent perform better against it.
 
 from __future__ import annotations
 
+import os
 import random
 
 from simulator.faults.base import Fault, LogLine, Readings, ramp
 from simulator.signals import NODE_ZONE
 
 ZONE = "north"
-RAMP_S = 15 * 60.0
+
+#: Seconds for the north zone to climb TEMP_START -> TEMP_END.
+#:
+#: The default is unchanged at 15 minutes: this fault is deliberately not
+#: tuned, and its timing is part of what it demonstrates. The lever exists
+#: only so a recording session can shorten the wait without editing the
+#: module -- nobody should be hand-editing a fault that is meant to stay
+#: untouched, and an env var keeps the committed default honest.
+#:
+#: Same pattern as VOLUME_OPS_VRAM_RAMP_S. Note this is the slowest of the
+#: four scenarios by a wide margin; at the default nothing is worth
+#: investigating for a quarter of an hour.
+RAMP_S = float(os.environ.get("VOLUME_OPS_THERMAL_RAMP_S", str(15 * 60.0)))
 
 TEMP_START, TEMP_END = 68.0, 87.0
 THROTTLE_TEMP = 82.0

@@ -248,3 +248,42 @@ class TestMaturity(unittest.TestCase):
         f = build_fault("vram_leak")
         self.assertFalse(f.matured)
         self.assertEqual(f.maturity_remaining(), f.maturity_s)
+
+
+class TestRampLevers(unittest.TestCase):
+    """Both slow faults expose a ramp lever, and only vram_leak's default moved.
+
+    thermal_throttle is held untuned for the live demo, so its committed
+    default must stay at 15 minutes. The lever exists so a recording session
+    can shorten the wait via the environment rather than by editing a module
+    that is explicitly not meant to be edited.
+    """
+
+    def test_thermal_default_is_unchanged(self) -> None:
+        import importlib, os
+        from unittest.mock import patch
+        import simulator.faults.thermal_throttle as t
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("VOLUME_OPS_THERMAL_RAMP_S", None)
+            importlib.reload(t)
+            self.assertEqual(t.RAMP_S, 15 * 60.0)
+        importlib.reload(t)
+
+    def test_thermal_ramp_honours_the_variable(self) -> None:
+        import importlib, os
+        from unittest.mock import patch
+        import simulator.faults.thermal_throttle as t
+        with patch.dict(os.environ, {"VOLUME_OPS_THERMAL_RAMP_S": "120"}):
+            importlib.reload(t)
+            self.assertEqual(t.RAMP_S, 120.0)
+            # maturity must follow the lever, not stay pinned to the default.
+            self.assertEqual(t.ThermalThrottle.maturity_s, 120.0)
+        importlib.reload(t)
+
+    def test_thermal_signals_are_untouched(self) -> None:
+        # The lever changes the clock and nothing else.
+        import simulator.faults.thermal_throttle as t
+        self.assertEqual((t.TEMP_START, t.TEMP_END), (68.0, 87.0))
+        self.assertEqual(t.THROTTLE_TEMP, 82.0)
+        self.assertEqual((t.FRAME_START, t.FRAME_END), (0.0295, 0.0586))
+        self.assertEqual(t.ZONE, "north")
