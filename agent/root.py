@@ -74,6 +74,18 @@ def investigation_from_state(state: dict, alert: Alert) -> Investigation:
     # ruled the entity out, and letting it validate a finding would let the
     # decoy node be reported as the cause -- with a dollar figure attached --
     # immediately after the agent argued it was not.
+    # The haystack includes each hypothesis's EVIDENCE, not just its entity
+    # and statement. A good investigation hypothesises at fleet level and
+    # reports findings at entity level -- "render nodes are exhausting VRAM"
+    # resolving to "node_12 is at 0.97" -- and those two strings share no
+    # substring. Matching on entity and statement alone therefore dropped the
+    # evidence for exactly the investigations that reasoned best, and the
+    # finding then failed the scorer's evidence rule and vanished: seven
+    # panels about to go black were reported GREEN at $0.
+    #
+    # The bridge is that the specific entity appears verbatim in the evidence
+    # the agent gathered -- the driver log names node_12 outright -- so the
+    # text it actually collected is what links the two levels.
     for f in raw.get("findings", []):
         entity = str(f.get("entity", "")).strip()
         key = entity.casefold()
@@ -81,7 +93,10 @@ def investigation_from_state(state: dict, alert: Alert) -> Investigation:
         for h in inv.hypotheses:
             if h.is_rejected or not key:
                 continue
-            hay = f"{h.entity} {h.statement}".casefold()
+            hay = " ".join(
+                [h.entity, h.statement]
+                + [f"{e.query} {e.result}" for e in h.evidence]
+            ).casefold()
             if h.entity.strip().casefold() == key or key in hay:
                 backing.extend(h.evidence)
         inv.findings.append(

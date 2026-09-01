@@ -150,10 +150,43 @@ def score(investigation: Investigation, minutes_affected: float = 0.0) -> Invest
     kept: list[Finding] = []
     for finding in investigation.findings:
         if not finding.has_evidence:
-            log.info(
-                "dropping unevidenced finding: %s", finding.title,
-                extra={"extra_fields": {"finding": finding.title}},
+            # The rule still runs -- only to say what was lost. A finding that
+            # would have scored and is dropped anyway is the dangerous case:
+            # nothing downstream distinguishes "investigated, nothing wrong"
+            # from "found it, then lost the evidence on the way here", so the
+            # brief reports GREEN at $0 either way. That silence hid seven
+            # panels about to go black. Warn loudly, name the rule that would
+            # have fired, and leave the drop itself alone -- unevidenced
+            # findings must not reach a producer.
+            rule = _BY_SIGNAL.get(finding.signal)
+            would_have_scored = (
+                rule is not None
+                and finding.value is not None
+                and rule.triggers(float(finding.value))
             )
+            if would_have_scored:
+                log.warning(
+                    "DROPPED A SCORING FINDING: %s (%s=%s) matched the %s rule "
+                    "and would have scored %s, but carried no evidence. The "
+                    "brief will understate this. Evidence is attached upstream "
+                    "in agent.root.investigation_from_state -- suspect the "
+                    "hypothesis/finding entity linkage.",
+                    finding.entity, finding.signal, finding.value,
+                    rule.signal, rule.severity.value,
+                    extra={"extra_fields": {
+                        "finding": finding.title,
+                        "entity": finding.entity,
+                        "signal": finding.signal,
+                        "value": finding.value,
+                        "would_have_scored": rule.severity.value,
+                        "dropped_reason": "no_evidence",
+                    }},
+                )
+            else:
+                log.info(
+                    "dropping unevidenced finding: %s", finding.title,
+                    extra={"extra_fields": {"finding": finding.title}},
+                )
             continue
         kept.append(score_finding(finding, minutes_affected))
 
