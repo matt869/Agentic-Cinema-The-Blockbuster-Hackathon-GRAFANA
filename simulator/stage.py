@@ -125,13 +125,25 @@ class StageEmitter:
             log.info("fault stopped: %s", name)
 
     def fault_state(self) -> dict[str, dict[str, object]]:
-        return {
-            name: {
-                "active": (f := self.faults.get(name)) is not None and f.active,
-                "elapsed_s": round(f.elapsed(), 1) if f is not None else 0.0,
+        state: dict[str, dict[str, object]] = {}
+        for name in FAULT_NAMES:
+            fault = self.faults.get(name)
+            # maturity_s is a class attribute, so it is known for a fault that
+            # has never been started -- the UI needs it to say how long this
+            # one will take before anyone commits to running it.
+            maturity = float(build_fault(name).maturity_s
+                             if fault is None else fault.maturity_s)
+            active = fault is not None and fault.active
+            state[name] = {
+                "active": active,
+                "elapsed_s": round(fault.elapsed(), 1) if fault else 0.0,
+                "maturity_s": round(maturity, 1),
+                "matured": bool(fault and fault.matured),
+                "matures_in_s": round(
+                    fault.maturity_remaining() if fault else maturity, 1
+                ),
             }
-            for name in FAULT_NAMES
-        }
+        return state
 
     # ---------------------------------------------------------------- logs
     def emit_log(self, line: LogLine) -> None:

@@ -11,9 +11,9 @@ from __future__ import annotations
 import time
 import unittest
 
-from simulator.faults.base import build_fault
+from simulator.faults.base import FAULT_NAMES, build_fault
 from simulator.faults.vram_leak import RAMP_S
-from tests.support import at, blank_readings, error_nodes, started
+from tests.support import T0, at, blank_readings, error_nodes, started
 
 
 class TestTrackerDrift(unittest.TestCase):
@@ -190,3 +190,61 @@ class TestThermalThrottle(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestMaturity(unittest.TestCase):
+    """Every fault declares when it is worth investigating.
+
+    Faults ramp, and some emit nothing at all until they cross a threshold:
+    vram_leak has no failed frames, no OOM traces and no queue backup until
+    VRAM passes 90%, which is 83% of the way up its ramp. Investigating before
+    that spends a metered model call to look at a mild elevation. The UI reads
+    these values to say so before the call is made.
+    """
+
+    def test_every_fault_declares_a_positive_maturity(self) -> None:
+        for name in FAULT_NAMES:
+            with self.subTest(name):
+                self.assertGreater(build_fault(name).maturity_s, 0.0)
+
+    def test_vram_maturity_is_past_the_first_failure(self) -> None:
+        from simulator.faults.vram_leak import (
+            FAILURE_THRESHOLD, VRAM_END, VRAM_START,
+        )
+        f = build_fault("vram_leak")
+        first = RAMP_S * (FAILURE_THRESHOLD - VRAM_START) / (VRAM_END - VRAM_START)
+        self.assertGreater(f.maturity_s, first)
+
+    def test_readings_at_maturity_actually_contain_the_evidence(self) -> None:
+        """The promise the cue makes must be true, not merely declared."""
+        f = build_fault("vram_leak")
+        with started(f):
+            r = at(f, f.maturity_s)
+        self.assertTrue(r.failures, "no frame failures at maturity")
+        self.assertGreater(r.queue["seq_042"], 8.0, "queue has not risen")
+        for node in (f"node_{i}" for i in range(12, 19)):
+            self.assertGreaterEqual(r.vram_fraction[node], 0.90)
+
+    def test_before_maturity_the_evidence_is_absent(self) -> None:
+        f = build_fault("vram_leak")
+        with started(f):
+            r = at(f, f.maturity_s * 0.5)
+        self.assertFalse(r.failures, "failures should not exist this early")
+
+    def test_matured_flag_tracks_elapsed(self) -> None:
+        from unittest.mock import patch
+        f = build_fault("vram_leak")
+        with patch("time.monotonic", return_value=T0):
+            f.start()
+            self.assertFalse(f.matured)
+            self.assertAlmostEqual(f.maturity_remaining(), f.maturity_s, places=1)
+        with patch("time.monotonic", return_value=T0 + f.maturity_s + 1):
+            self.assertTrue(f.matured)
+            self.assertEqual(f.maturity_remaining(), 0.0)
+        f.stop()
+
+    def test_inactive_fault_reports_full_maturity_remaining(self) -> None:
+        # The card shows "needs 2:45" before anyone presses inject.
+        f = build_fault("vram_leak")
+        self.assertFalse(f.matured)
+        self.assertEqual(f.maturity_remaining(), f.maturity_s)

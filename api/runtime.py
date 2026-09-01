@@ -120,7 +120,18 @@ class StageRunner:
 
     def fault_state(self) -> dict[str, dict[str, object]]:
         if self._emitter is None:
-            return {n: {"active": False, "elapsed_s": 0.0} for n in FAULT_NAMES}
+            from simulator.faults.base import build_fault
+
+            return {
+                n: {
+                    "active": False,
+                    "elapsed_s": 0.0,
+                    "maturity_s": round(float(build_fault(n).maturity_s), 1),
+                    "matured": False,
+                    "matures_in_s": round(float(build_fault(n).maturity_s), 1),
+                }
+                for n in FAULT_NAMES
+            }
         with self._lock:
             return self._emitter.fault_state()
 

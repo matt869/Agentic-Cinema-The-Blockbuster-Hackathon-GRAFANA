@@ -38,6 +38,9 @@ _DECOY_MESSAGES = (
 
 class GenlockLoss(Fault):
     name = "genlock_loss"
+    #: Full drift, well past the 2.0ms alert threshold, and long enough for
+    #: the decoy window (20-50s) to have opened and closed.
+    maturity_s = RAMP_S + 15.0
     summary = (
         "node_07 lost its genlock reference and is free-running on its "
         "internal clock; its wall segment tears on camera."

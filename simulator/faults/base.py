@@ -68,6 +68,20 @@ class Fault(ABC):
     name: ClassVar[str] = "fault"
     summary: ClassVar[str] = ""
 
+    #: Seconds from start() until the scenario is worth investigating -- the
+    #: point where the evidence the agent needs actually exists.
+    #:
+    #: Not the same as "the fault has begun". Every fault ramps, and some ramp
+    #: past a threshold before their real symptoms appear at all: vram_leak
+    #: emits no failed frames, no OOM traces and no queue backup until VRAM
+    #: crosses 90%, which is 83% of the way up its ramp. Investigating before
+    #: that costs a full round of model calls to look at a mild elevation and
+    #: conclude, correctly, that there is not much there.
+    #:
+    #: Surfaced to the UI so nobody spends a demo -- or a metered model call --
+    #: on a fault that has not finished becoming one.
+    maturity_s: ClassVar[float] = 0.0
+
     def __init__(self) -> None:
         self._started: float | None = None
         self._pending: list[LogLine] = []
@@ -79,6 +93,17 @@ class Fault(ABC):
     def elapsed(self) -> float:
         """Seconds since ``start()``, or 0 when inactive."""
         return 0.0 if self._started is None else time.monotonic() - self._started
+
+    @property
+    def matured(self) -> bool:
+        """Whether the evidence this scenario turns on exists yet."""
+        return self.active and self.elapsed() >= self.maturity_s
+
+    def maturity_remaining(self) -> float:
+        """Seconds until :attr:`matured`, or 0 once there."""
+        if not self.active:
+            return self.maturity_s
+        return max(0.0, self.maturity_s - self.elapsed())
 
     def start(self) -> None:
         if self.active:

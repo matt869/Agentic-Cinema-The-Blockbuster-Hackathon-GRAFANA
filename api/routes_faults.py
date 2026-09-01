@@ -22,6 +22,12 @@ class FaultState(BaseModel):
     active: bool
     elapsed_s: float
     summary: str
+    #: Seconds from start until the evidence the agent needs exists. The UI
+    #: shows this so nobody spends a metered model call investigating a fault
+    #: that has not finished becoming one.
+    maturity_s: float
+    matured: bool
+    matures_in_s: float
 
 
 class FaultAction(BaseModel):
@@ -52,6 +58,9 @@ def list_faults() -> list[FaultState]:
             active=bool(state.get(name, {}).get("active", False)),
             elapsed_s=float(state.get(name, {}).get("elapsed_s", 0.0)),
             summary=_SUMMARIES[name],
+            maturity_s=float(state.get(name, {}).get("maturity_s", 0.0)),
+            matured=bool(state.get(name, {}).get("matured", False)),
+            matures_in_s=float(state.get(name, {}).get("matures_in_s", 0.0)),
         )
         for name in FAULT_NAMES
     ]

@@ -24,6 +24,9 @@ CONFIDENCE_START, CONFIDENCE_END = 0.97, 0.61
 
 class TrackerDrift(Fault):
     name = "tracker_drift"
+    #: Full ramp: latency at 45ms and confidence down to 0.61, both clearly
+    #: outside their bands rather than merely trending.
+    maturity_s = DURATION_S
     summary = (
         "Wall segment repositioned without recalibration; tracker_3 solve "
         "drifts and cam_a tracking latency climbs."

@@ -65,8 +65,17 @@ _OOM_TRACE = (
 )
 
 
+#: Fraction of the ramp at which VRAM crosses FAILURE_THRESHOLD.
+_FAILURE_POINT = (FAILURE_THRESHOLD - VRAM_START) / (VRAM_END - VRAM_START)
+
+#: A beat past the first failure, so a queue rise and at least one OOM trace
+#: (emitted every 4s while failing) exist rather than a single increment.
+_EVIDENCE_MARGIN_S = 15.0
+
+
 class VramLeak(Fault):
     name = "vram_leak"
+    maturity_s = RAMP_S * _FAILURE_POINT + _EVIDENCE_MARGIN_S
     summary = (
         "GPU driver patch on node_12..node_18 leaks VRAM; seq_042 frames "
         "fail once cards fill and the render queue backs up."

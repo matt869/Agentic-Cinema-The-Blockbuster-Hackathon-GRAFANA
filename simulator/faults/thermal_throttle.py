@@ -31,6 +31,12 @@ FRAME_START, FRAME_END = 0.0295, 0.0586
 
 class ThermalThrottle(Fault):
     name = "thermal_throttle"
+    #: Declares how long this scenario takes to become investigable. It is a
+    #: label on existing behaviour, not a change to it: the ramp, thresholds
+    #: and signals are untouched. At 15 minutes it is the slowest of the four,
+    #: which is exactly what the cue needs to tell someone before they spend a
+    #: model call on it.
+    maturity_s = RAMP_S
     summary = (
         "North zone cooling is underperforming; those cards are throttling "
         "and frames are landing slower with no error anywhere."
