@@ -12,6 +12,7 @@ import time
 import unittest
 
 from simulator.faults.base import build_fault
+from simulator.faults.vram_leak import RAMP_S
 from tests.support import at, blank_readings, error_nodes, started
 
 
@@ -96,13 +97,19 @@ class TestGenlockLoss(unittest.TestCase):
 
 
 class TestVramLeak(unittest.TestCase):
-    """Seven nodes climb 55% -> 97% over 20 min; failures past 90%."""
+    """Seven nodes climb 55% -> 97% over RAMP_S; failures past 90%.
+
+    Timings are expressed as fractions of RAMP_S rather than as the literal
+    seconds they once were. The ramp is configurable now, and hard-coded
+    1200s probes would still pass against a 180s ramp -- by landing on the
+    clamped tail, testing nothing about the climb.
+    """
 
     LEAKING = tuple(f"node_{i}" for i in range(12, 19))
 
     def test_climbs_on_seven_nodes_only(self) -> None:
         with started(build_fault("vram_leak")) as f:
-            start, end = at(f, 0), at(f, 1200)
+            start, end = at(f, 0), at(f, RAMP_S)
             for node in self.LEAKING:
                 self.assertAlmostEqual(start.vram_fraction[node], 0.55, places=2)
                 self.assertAlmostEqual(end.vram_fraction[node], 0.97, places=2)
@@ -112,8 +119,10 @@ class TestVramLeak(unittest.TestCase):
 
     def test_failures_start_only_past_the_threshold(self) -> None:
         with started(build_fault("vram_leak")) as f:
-            self.assertEqual(sum(at(f, 900).failures.values()), 0)   # ~86%
-            failing = at(f, 1100)                                    # ~93%
+            # 75% of the ramp is ~0.865, below the 0.90 threshold.
+            self.assertEqual(sum(at(f, RAMP_S * 0.75).failures.values()), 0)
+            # 92% of the ramp is ~0.936, above it.
+            failing = at(f, RAMP_S * 0.92)
             self.assertEqual(len(failing.failures), len(self.LEAKING))
             for (node, sequence) in failing.failures:
                 self.assertIn(node, self.LEAKING)
@@ -136,7 +145,7 @@ class TestVramLeak(unittest.TestCase):
     def test_stop_reverts(self) -> None:
         f = build_fault("vram_leak")
         with started(f):
-            at(f, 1200)
+            at(f, RAMP_S)
         reverted = blank_readings()
         f.apply(reverted)
         self.assertEqual(reverted.vram_fraction["node_15"], 0.52)

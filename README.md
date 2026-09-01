@@ -141,7 +141,8 @@ python -m venv .venv && .venv/Scripts/pip install -r requirements.txt
 | `GOOGLE_GENAI_USE_VERTEXAI` | `false` for the Gemini Developer API, `true` for Vertex AI |
 | `GOOGLE_CLOUD_PROJECT` | GCP project — Vertex only |
 | `GOOGLE_CLOUD_LOCATION` | e.g. `us-central1` — Vertex only |
-| `DEPLOYMENT_ENV` | Label stamped on every metric and log. Defaults to `local`; a deployment sets its own (`space`) |
+| `DEPLOYMENT_ENV` | Label stamped on every metric and log. Defaults to `local`; a deployment sets its own (`render`) |
+| `VOLUME_OPS_VRAM_RAMP_S` | Seconds for the VRAM leak to climb 55%→97%. Defaults to `180`; `1200` restores the original 20-minute timing |
 
 For Vertex, authenticate with ADC instead of a key:
 
@@ -200,7 +201,7 @@ GRAFANA_URL             GRAFANA_SERVICE_ACCOUNT_TOKEN
 GOOGLE_API_KEY
 ```
 
-Set `DEPLOYMENT_ENV=space` as a **variable** (not a secret — it is not
+Set `DEPLOYMENT_ENV` as a **variable** (not a secret — it is not
 sensitive, and you want to read it back). Every metric and log the Space emits
 is stamped with it, and every Grafana query the agent writes filters on it.
 Without it a deployed Space and a laptop write the same series names with the

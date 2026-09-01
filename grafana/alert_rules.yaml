@@ -13,6 +13,14 @@
 # NOTE: there is deliberately NO rule for gpu temperature. thermal_throttle is
 # silent quality decay -- no errors, no failures, no alert. It is found by the
 # agent generalising, not by a threshold someone wrote in advance.
+#
+# Every expression filters on deployment="render". More than one stage writes
+# into this Grafana with identical metric names and identical entity labels,
+# so an unfiltered max() spans all of them: a fault on a laptop, or a stale
+# series from a previous deployment, would fire an alert about a stage the
+# agent is not looking at -- and the agent, which does filter, would then
+# investigate a healthy stage and find nothing. Change the value here if the
+# deployment this Grafana watches is renamed.
 
 apiVersion: 1
 
@@ -41,7 +49,7 @@ groups:
             model:
               refId: A
               instant: true
-              expr: max(stage_led_wall_sync_drift_ms)
+              expr: max(stage_led_wall_sync_drift_ms{deployment="render"})
           - refId: THRESHOLD
             datasourceUid: __expr__
             model:
@@ -69,7 +77,7 @@ groups:
             model:
               refId: A
               instant: true
-              expr: max(stage_camera_tracking_latency_ms)
+              expr: max(stage_camera_tracking_latency_ms{deployment="render"})
           - refId: THRESHOLD
             datasourceUid: __expr__
             model:
@@ -97,7 +105,7 @@ groups:
             model:
               refId: A
               instant: true
-              expr: max(stage_gpu_vram_used_bytes / stage_gpu_vram_total_bytes)
+              expr: max(stage_gpu_vram_used_bytes{deployment="render"} / stage_gpu_vram_total_bytes{deployment="render"})
           - refId: THRESHOLD
             datasourceUid: __expr__
             model:
@@ -126,7 +134,7 @@ groups:
             model:
               refId: A
               instant: true
-              expr: min(stage_tracker_calibration_confidence)
+              expr: min(stage_tracker_calibration_confidence{deployment="render"})
           - refId: THRESHOLD
             datasourceUid: __expr__
             model:
@@ -154,7 +162,7 @@ groups:
             model:
               refId: A
               instant: true
-              expr: max(stage_render_queue_depth)
+              expr: max(stage_render_queue_depth{deployment="render"})
           - refId: THRESHOLD
             datasourceUid: __expr__
             model:

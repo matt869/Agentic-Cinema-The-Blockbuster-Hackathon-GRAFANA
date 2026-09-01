@@ -2,7 +2,7 @@
 
 A GPU driver patch applied to node_12..node_18, logged well before the
 incident window. From T+0 VRAM on those seven nodes climbs linearly 55% -> 97%
-over 20 minutes; past 90% frame failures increment on seq_042, render workers
+over RAMP_S (three minutes by default); past 90% frame failures increment on seq_042, render workers
 emit CUDA out-of-memory stack traces, and the sequence queue depth rises as
 failures accumulate.
 
@@ -23,6 +23,7 @@ the agent must still widen its range to find it.
 
 from __future__ import annotations
 
+import os
 import time
 
 from simulator.faults.base import Fault, LogLine, Readings, ramp
@@ -33,7 +34,24 @@ SEQUENCE = "seq_042"
 #: Backdating ceiling is 3h (Grafana Cloud Loki drops older records without
 #: erroring). 2.5h keeps a 30-minute safety margin.
 PATCH_AGE_S = 2.5 * 3600.0
-RAMP_S = 20 * 60.0
+
+#: How long VRAM takes to climb from VRAM_START to VRAM_END.
+#:
+#: Frame failures do not begin until the ramp crosses FAILURE_THRESHOLD, which
+#: sits 83% of the way up -- so the ramp length, not the fault, decides how
+#: long someone waits before there is anything to investigate. At the original
+#: 20 minutes the first failure landed at 16.7, and nothing but a slow VRAM
+#: rise existed before it: no OOM traces, no queue backup, no failures to
+#: explain. Someone who injects the fault and investigates a minute later sees
+#: a mild elevation and none of the evidence the scenario is built on, then
+#: concludes the agent is weak when it is only early.
+#:
+#: Three minutes puts the first failure at 2.5 and the full 0.97 at 3, which a
+#: visitor will actually sit through, and keeps the whole scenario inside the
+#: idle window of a free host that sleeps after 15 minutes of no traffic. It
+#: is still a slow build next to genlock_loss at 40s: the narrative is
+#: unchanged, only the clock. Set VOLUME_OPS_VRAM_RAMP_S=1200 for the original.
+RAMP_S = float(os.environ.get("VOLUME_OPS_VRAM_RAMP_S", "180"))
 VRAM_START, VRAM_END = 0.55, 0.97
 FAILURE_THRESHOLD = 0.90
 

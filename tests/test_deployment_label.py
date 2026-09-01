@@ -125,3 +125,38 @@ class TestAgentIsTaughtToFilter(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestAlertRulesFilter(unittest.TestCase):
+    """The provisioned alert rules must filter too.
+
+    They are Prometheus queries like any other. An unfiltered max() spans
+    every deployment writing to the stack, so a fault on one stage fires an
+    alert about another -- and the agent, which does filter, then investigates
+    a healthy stage and correctly finds nothing. The two halves have to agree.
+    """
+
+    def _exprs(self):
+        import re
+        from pathlib import Path
+        text = Path("grafana/alert_rules.yaml").read_text(encoding="utf-8")
+        return re.findall(r"^\s*expr:\s*(.+)$", text, re.M)
+
+    def test_every_rule_has_at_least_one_expression(self) -> None:
+        self.assertGreaterEqual(len(self._exprs()), 5)
+
+    def test_no_rule_queries_across_deployments(self) -> None:
+        unfiltered = [e for e in self._exprs() if "deployment=" not in e]
+        self.assertEqual(unfiltered, [], f"unfiltered alert exprs: {unfiltered}")
+
+    def test_every_metric_selector_is_filtered(self) -> None:
+        # A binary expression has two selectors; both need the filter, or the
+        # vector match silently drops to nothing.
+        import re
+        for e in self._exprs():
+            metrics = re.findall(r"(stage_[a-z_]+)(\{[^}]*\})?", e)
+            for name, sel in metrics:
+                self.assertTrue(
+                    sel and "deployment=" in sel,
+                    f"{name} unfiltered in: {e}",
+                )
